@@ -82,62 +82,62 @@ def detect_coin(image):
 
     min_x, min_y, max_x, max_y = hand_region
     cropped_hand = image[min_y:max_y, min_x:max_x]
-    gray = cv2.cvtColor(cropped_hand, cv2.COLOR_BGR2GRAY)
-    gray = cv2.equalizeHist(gray)
 
-    # First attempt: Sobel edge detection
-    blurred = cv2.GaussianBlur(gray, (5, 5), 2)  # Reduced kernel for better edge preservation
-    # Sobel derivatives
-    sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)  # x-direction gradient
-    sobel_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=3)  # y-direction gradient
-    # Magnitude of gradient
-    edge_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-    edge_magnitude = np.uint8(255 * edge_magnitude / np.max(edge_magnitude))  # Normalize
-    # Threshold to get binary edge image
-    _, edges_sobel = cv2.threshold(edge_magnitude, 50, 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    edges_sobel = cv2.morphologyEx(edges_sobel, cv2.MORPH_CLOSE, kernel, iterations=2)
-    cv2.imwrite("debug_edges_sobel.jpg", edges_sobel)  # Debugging
+    # Convert to HSV color space to detect red
+    hsv = cv2.cvtColor(cropped_hand, cv2.COLOR_BGR2HSV)
 
-    # Hough Circle Transform on Sobel edges
-    circles = detect_hough_circle_transform(1.2, 50, 80, 20, 10, 50, edges_sobel)  # Adjusted parameters
-    if circles is not None:
-        circles = np.round(circles[0, :]).astype("int")
-        for (x, y, r) in circles:
+    # Define range for red color (since red wraps around 0-10 and 170-180 in HSV)
+    lower_red1 = np.array([0, 120, 70])    # Lower bound for red hue 1
+    upper_red1 = np.array([10, 255, 255])  # Upper bound for red hue 1
+    lower_red2 = np.array([170, 120, 70])  # Lower bound for red hue 2
+    upper_red2 = np.array([180, 255, 255]) # Upper bound for red hue 2
+
+    # Create masks for red color
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2  # Combine masks
+
+    # Apply morphological operations to clean up the mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    cv2.imwrite("debug_red_mask.jpg", mask)  # Debugging
+
+    # Contour detection on the red mask
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        # Find the largest contour (assuming it's the red circle)
+        largest_contour = max(contours, key=cv2.contourArea)
+        if cv2.contourArea(largest_contour) > 100:  # Minimum area threshold
+            # Fit an ellipse to the red contour
+            ellipse = cv2.fitEllipse(largest_contour)
+            center, axes, angle = ellipse
+            major_axis = max(axes)  # Major axis length
+            minor_axis = min(axes)  # Minor axis length
+            # Use the minor axis as the effective diameter (since the circle is drawn around the coin)
+            diameter_pixels = int(minor_axis)
+
+            x, y = int(center[0]), int(center[1])
             x_full, y_full = x + min_x, y + min_y
-            cv2.circle(image, (x_full, y_full), r, (0, 255, 0), 4)
-            start_point = (x_full - r, y_full)
-            end_point = (x_full + r, y_full)
+
+            # Ensure the green ellipse perfectly overlays the red circle
+            # Increase the thickness for better visibility and alignment
+            cv2.ellipse(image, (x_full, y_full), (int(axes[0]/2), int(axes[1]/2)), angle, 0, 360, (0, 255, 0), 3)
+            # Draw the diameter line (using the minor axis direction)
+            if major_axis == axes[0]:
+                start_point = (int(x_full - axes[1]/2 * math.cos(math.radians(angle + 90))), int(y_full - axes[1]/2 * math.sin(math.radians(angle + 90))))
+                end_point = (int(x_full + axes[1]/2 * math.cos(math.radians(angle + 90))), int(y_full + axes[1]/2 * math.sin(math.radians(angle + 90))))
+            else:
+                start_point = (int(x_full - axes[0]/2 * math.cos(math.radians(angle))), int(y_full - axes[0]/2 * math.sin(math.radians(angle))))
+                end_point = (int(x_full + axes[0]/2 * math.cos(math.radians(angle))), int(y_full + axes[0]/2 * math.sin(math.radians(angle))))
             cv2.line(image, start_point, end_point, (255, 0, 0), 2)
-            diameter_pixels = 2 * r
             cv2.putText(image, f'Diameter: {diameter_pixels}px',
-                        (x_full - r, y_full - 20),
+                        (x_full - int(axes[0]/2), y_full - int(axes[1]/2) - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+            print(f"Detected diameter: {diameter_pixels} pixels")
             return diameter_pixels
 
-    # Second attempt: Canny-based fallback
-    print("Sobel attempt failed, trying Canny-based detection...")
-    blurred = cv2.GaussianBlur(gray, (9, 9), 2)
-    edges = cv2.Canny(blurred, threshold1=20, threshold2=80)  # Adjusted thresholds
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-    cv2.imwrite("debug_edges_canny.jpg", edges)  # Debugging
-
-    circles = detect_hough_circle_transform(1.2, 50, 80, 20, 10, 50, edges)
-    if circles is not None:
-        circles = np.round(circles[0, :]).astype("int")
-        for (x, y, r) in circles:
-            x_full, y_full = x + min_x, y + min_y
-            cv2.circle(image, (x_full, y_full), r, (0, 255, 0), 4)
-            start_point = (x_full - r, y_full)
-            end_point = (x_full + r, y_full)
-            cv2.line(image, start_point, end_point, (255, 0, 0), 2)
-            diameter_pixels = 2 * r
-            cv2.putText(image, f'Diameter: {diameter_pixels}px',
-                        (x_full - r, y_full - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-            return diameter_pixels
-
-    print("Error: No circles detected after multiple attempts.")
+    print("Error: No red circle detected.")
     return None
 
 def calculate_scale_factor(coin_diameter_pixels, real_coin_diameter_mm):
