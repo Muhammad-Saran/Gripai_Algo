@@ -122,7 +122,6 @@ def detect_coin(image, output_folder, base_name):
             center, axes, angle = ellipse
             major_axis = max(axes)  # Major axis length
             minor_axis = min(axes)  # Minor axis length
-            # Use the minor axis as the effective diameter (since the circle is drawn around the coin)
             diameter_pixels = int(minor_axis)
 
             x, y = int(center[0]), int(center[1])
@@ -142,16 +141,11 @@ def detect_coin(image, output_folder, base_name):
                         (x_full - int(axes[0]/2), y_full - int(axes[1]/2) - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
             print(f"Detected diameter: {diameter_pixels} pixels")
-            return diameter_pixels
+            # Return diameter_pixels and the endpoints of the drawn line
+            return diameter_pixels, start_point, end_point
 
     print("Error: No red circle detected.")
     return None
-
-def calculate_scale_factor(coin_diameter_pixels, real_coin_diameter_mm):
-    real_coin_diameter_mm = float(real_coin_diameter_mm)
-    if coin_diameter_pixels == 0 or coin_diameter_pixels is None:
-        raise ValueError("Coin diameter in pixels cannot be zero or None")
-    return real_coin_diameter_mm / coin_diameter_pixels
 
 def get_distance_in_pixels(landmark1, landmark2, image_width, image_height):
     """Calculate Euclidean distance between two landmarks in pixels."""
@@ -160,8 +154,15 @@ def get_distance_in_pixels(landmark1, landmark2, image_width, image_height):
     distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
     return distance
 
-def get_hand_metrics(hand_landmarks, image_height, image_width):
-    """Calculate hand metrics with width adjustment."""
+def calculate_line_length(start_point, end_point):
+    """Calculate the Euclidean distance between two points."""
+    x1, y1 = start_point
+    x2, y2 = end_point
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+def get_hand_metrics(hand_landmarks, image_height, image_width, diameter_line_length):
+    """Calculate hand metrics using the coin's diameter line length as reference."""
+    # Get pixel distances from MediaPipe landmarks
     hand_length_pixels = get_distance_in_pixels(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST],
                                                 hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP],
                                                 image_width, image_height)
@@ -178,10 +179,23 @@ def get_hand_metrics(hand_landmarks, image_height, image_width):
                                                hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP],
                                                image_width, image_height)
     
-    # Adjust hand width to match real range (3.3–3.5 inches)
-    adjusted_hand_width_pixels = hand_width_pixels * 1.3
+    # Use the diameter line length (in pixels) as a reference for 25.5 mm
+    coin_real_diameter_mm = get_coin_diameter()  # 25.5 mm
+    mm_per_pixel = coin_real_diameter_mm / diameter_line_length
     
-    return hand_length_pixels, trigger_distance_pixels, grip_length_pixels, adjusted_hand_width_pixels
+    # Convert MediaPipe distances to mm using the diameter line
+    hand_length_mm = hand_length_pixels * mm_per_pixel
+    trigger_distance_mm = trigger_distance_pixels * mm_per_pixel
+    grip_length_mm = grip_length_pixels * mm_per_pixel
+    hand_width_mm = hand_width_pixels * mm_per_pixel
+    
+    # Convert to inches
+    hand_length_inches = hand_length_mm / 25.4
+    trigger_distance_inches = trigger_distance_mm / 25.4
+    grip_length_inches = grip_length_mm / 25.4
+    hand_width_inches = hand_width_mm / 25.4
+    
+    return hand_length_inches, trigger_distance_inches, grip_length_inches, hand_width_inches
 
 def process_hand_scan_image(image_path):
     image = cv2.imread(image_path)
@@ -206,27 +220,22 @@ def process_hand_scan_image(image_path):
     output_folder = os.path.join(base_dir, "processed_images")
     os.makedirs(output_folder, exist_ok=True)  # Reuse if exists
 
-    coin_diameter_pixels = detect_coin(image_no_bg, output_folder, base_name)
-    if coin_diameter_pixels is None:
+    result = detect_coin(image_no_bg, output_folder, base_name)
+    if result is None:
         print("Error: Could not detect coin in the image")
         return
-
-    scale_factor = calculate_scale_factor(coin_diameter_pixels, get_coin_diameter())
+    diameter_pixels, start_point, end_point = result
+    diameter_line_length = calculate_line_length(start_point, end_point)
+    print(f"Diameter line length: {diameter_line_length:.2f} pixels")
 
     hand_landmarks = detect_hand(image_no_bg)
     if hand_landmarks is None:
         print("Error: Could not detect hand in the image")
         return
 
-    hand_length_pixels, trigger_distance_pixels, grip_length_pixels, hand_width_pixels = get_hand_metrics(
-        hand_landmarks, image_height, image_width
+    hand_length_inches, trigger_distance_inches, grip_length_inches, hand_width_inches = get_hand_metrics(
+        hand_landmarks, image_height, image_width, diameter_line_length
     )
-
-    hand_length_mm = hand_length_pixels * scale_factor
-    hand_width_mm = hand_width_pixels * scale_factor
-
-    hand_length_inches = hand_length_mm / 25.4
-    hand_width_inches = hand_width_mm / 25.4
 
     weighted_category = find_category(length=hand_length_inches, width=hand_width_inches)
 
