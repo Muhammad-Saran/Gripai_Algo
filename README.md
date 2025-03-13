@@ -26,8 +26,8 @@ The tool processes an input image of a hand with a coin, detects hand landmarks,
 #### Clone the Repository
 Clone this repository to your local machine using the following command:
 ```bash
-git clone https://github.com/your-username/Gripai_Algo.git
-cd Gripai_Algo
+git clone https://github.com/your-username/gripai-scanner-algo.git
+cd gripai-scanner-algo
 ```
 
 #### Create a Virtual Environment with Python 3.10
