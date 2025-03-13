@@ -74,7 +74,7 @@ def detect_hough_circle_transform(dp, mindist, param1, param2, minradius, maxrad
     )
     return circles
 
-def detect_coin(image):
+def detect_coin(image, base_dir, base_name):
     hand_region = detect_hand_region(image)
     if not hand_region:
         print("Error: No hand region detected.")
@@ -86,21 +86,17 @@ def detect_coin(image):
     gray = cv2.equalizeHist(gray)
 
     # First attempt: Sobel edge detection
-    blurred = cv2.GaussianBlur(gray, (5, 5), 2)  # Reduced kernel for better edge preservation
-    # Sobel derivatives
-    sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)  # x-direction gradient
-    sobel_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=3)  # y-direction gradient
-    # Magnitude of gradient
+    blurred = cv2.GaussianBlur(gray, (5, 5), 2)
+    sobel_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=3)
+    sobel_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=3)
     edge_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-    edge_magnitude = np.uint8(255 * edge_magnitude / np.max(edge_magnitude))  # Normalize
-    # Threshold to get binary edge image
+    edge_magnitude = np.uint8(255 * edge_magnitude / np.max(edge_magnitude))
     _, edges_sobel = cv2.threshold(edge_magnitude, 50, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     edges_sobel = cv2.morphologyEx(edges_sobel, cv2.MORPH_CLOSE, kernel, iterations=2)
-    cv2.imwrite("debug_edges_sobel.jpg", edges_sobel)  # Debugging
+    cv2.imwrite(os.path.join(base_dir, f"debug_{base_name}_sobel.jpg"), edges_sobel)  # Save in Mueen dir
 
-    # Hough Circle Transform on Sobel edges
-    circles = detect_hough_circle_transform(1.2, 50, 80, 20, 10, 50, edges_sobel)  # Adjusted parameters
+    circles = detect_hough_circle_transform(1.2, 50, 80, 20, 10, 50, edges_sobel)
     if circles is not None:
         circles = np.round(circles[0, :]).astype("int")
         for (x, y, r) in circles:
@@ -118,9 +114,9 @@ def detect_coin(image):
     # Second attempt: Canny-based fallback
     print("Sobel attempt failed, trying Canny-based detection...")
     blurred = cv2.GaussianBlur(gray, (9, 9), 2)
-    edges = cv2.Canny(blurred, threshold1=20, threshold2=80)  # Adjusted thresholds
+    edges = cv2.Canny(blurred, threshold1=20, threshold2=80)
     edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
-    cv2.imwrite("debug_edges_canny.jpg", edges)  # Debugging
+    cv2.imwrite(os.path.join(base_dir, f"debug_{base_name}_canny.jpg"), edges)  # Save in Mueen dir
 
     circles = detect_hough_circle_transform(1.2, 50, 80, 20, 10, 50, edges)
     if circles is not None:
@@ -182,7 +178,11 @@ def process_hand_scan_image(image_path):
 
     image_height, image_width, _ = image_no_bg.shape
 
-    coin_diameter_pixels = detect_coin(image_no_bg)
+    # Extract directory and filename from image_path
+    base_dir = os.path.dirname(image_path)  # e.g., D:\Projects\GripAI_Algo\Pictures\Mueen
+    base_name = os.path.splitext(os.path.basename(image_path))[0]  # e.g., mueen1
+
+    coin_diameter_pixels = detect_coin(image_no_bg, base_dir, base_name)
     if coin_diameter_pixels is None:
         print("Error: Could not detect coin in the image")
         return
@@ -210,11 +210,19 @@ def process_hand_scan_image(image_path):
     print(f"Hand Width: {hand_width_inches:.2f} inches")
     print(f"Weighted Category: {weighted_category}")
 
-    output_folder = "processed_images"
-    os.makedirs(output_folder, exist_ok=True)
-    output_path = os.path.join(output_folder, "processed_hand_image_with_coin_and_landmarks.jpg")
+    # Create processed_images folder inside the base directory (e.g., Mueen)
+    output_folder = os.path.join(base_dir, "processed_images")
+    os.makedirs(output_folder, exist_ok=True)  # Reuse if exists
+
+    # Add length and width text to the top-left corner of the image
+    text = f"Length: {hand_length_inches:.2f} in, Width: {hand_width_inches:.2f} in"
+    cv2.putText(image_no_bg, text, (10, 30),  # Top-left corner (x=10, y=30)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    # Save processed image with new naming convention
+    output_path = os.path.join(output_folder, f"{base_name}_processed.jpg")
     cv2.imwrite(output_path, image_no_bg)
-    print(f"Processed image with coin detection and hand landmarks saved as: {output_path}")
+    print(f"Processed image saved as: {output_path}")
 
 def main():
     image_path = input("Please enter the path to your hand scan image: ")
