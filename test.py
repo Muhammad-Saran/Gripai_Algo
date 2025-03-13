@@ -12,7 +12,7 @@ hands = mp_hands.Hands()
 
 # Simulated functions
 def get_coin_diameter():
-    return 24.26  # US quarter diameter in mm
+    return 25.50  # US quarter diameter in mm
 
 def find_category(length, width):
     minRangeWidth = 2.7
