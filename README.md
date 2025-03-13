@@ -1,4 +1,4 @@
-# Gripai_Algo
+# GR1P AI algo (Next Gen Scanner)
 
 ## Overview
 Gripai_Algo is a Python-based tool designed to measure hand metrics, specifically the length and width of a hand, using advanced computer vision techniques. The project leverages the MediaPipe library for hand landmark detection and OpenCV for image processing.
