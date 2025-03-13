@@ -74,7 +74,7 @@ def detect_hough_circle_transform(dp, mindist, param1, param2, minradius, maxrad
     )
     return circles
 
-def detect_coin(image):
+def detect_coin(image, output_folder, base_name):
     hand_region = detect_hand_region(image)
     if not hand_region:
         print("Error: No hand region detected.")
@@ -101,7 +101,15 @@ def detect_coin(image):
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
     mask = cv2.dilate(mask, kernel, iterations=1)
-    cv2.imwrite("debug_red_mask.jpg", mask)  # Debugging
+
+    # Find unique debug filename
+    debug_base = os.path.join(output_folder, f"debug_{base_name}")
+    debug_path = f"{debug_base}.jpg"
+    counter = 2
+    while os.path.exists(debug_path):
+        debug_path = f"{debug_base}_{counter}.jpg"
+        counter += 1
+    cv2.imwrite(debug_path, mask)  # Save with unique name
 
     # Contour detection on the red mask
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -121,7 +129,6 @@ def detect_coin(image):
             x_full, y_full = x + min_x, y + min_y
 
             # Ensure the green ellipse perfectly overlays the red circle
-            # Increase the thickness for better visibility and alignment
             cv2.ellipse(image, (x_full, y_full), (int(axes[0]/2), int(axes[1]/2)), angle, 0, 360, (0, 255, 0), 3)
             # Draw the diameter line (using the minor axis direction)
             if major_axis == axes[0]:
@@ -147,25 +154,41 @@ def calculate_scale_factor(coin_diameter_pixels, real_coin_diameter_mm):
     return real_coin_diameter_mm / coin_diameter_pixels
 
 def get_distance_in_pixels(landmark1, landmark2, image_width, image_height):
+    """Calculate Euclidean distance between two landmarks in pixels."""
     x1, y1 = int(landmark1.x * image_width), int(landmark1.y * image_height)
     x2, y2 = int(landmark2.x * image_width), int(landmark2.y * image_height)
-    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    distance = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+    return distance
 
 def get_hand_metrics(hand_landmarks, image_height, image_width):
+    """Calculate hand metrics with calibration for accurate real-world measurements."""
+    # Hand length: Wrist to middle finger tip (standard measurement)
     hand_length_pixels = get_distance_in_pixels(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST],
                                                 hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP],
                                                 image_width, image_height)
+    
+    # Apply a calibration factor to correct length underestimation
+    calibrated_hand_length_pixels = hand_length_pixels * 1.14  # Adjusted to target 6.8 inches avg
+    
+    # Trigger distance (unchanged)
     trigger_distance_pixels = get_distance_in_pixels(hand_landmarks.landmark[mp_hands.HandLandmark.WRIST],
                                                      hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP],
                                                      image_width, image_height)
+    
+    # Grip length (unchanged)
     grip_length_pixels = get_distance_in_pixels(hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP],
                                                 hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP],
                                                 image_width, image_height)
+    
+    # Hand width: Index MCP to Pinky MCP with adjusted factor
     hand_width_pixels = get_distance_in_pixels(hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_MCP],
                                                hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP],
                                                image_width, image_height)
-    adjusted_hand_width_pixels = hand_width_pixels * 1.29
-    return hand_length_pixels, trigger_distance_pixels, grip_length_pixels, adjusted_hand_width_pixels
+    # Increase adjustment from 1.29 to 1.35 to target 3.2 inches avg
+    adjusted_hand_width_pixels = hand_width_pixels * 1.35
+    
+    
+    return calibrated_hand_length_pixels, trigger_distance_pixels, grip_length_pixels, adjusted_hand_width_pixels
 
 def process_hand_scan_image(image_path):
     image = cv2.imread(image_path)
@@ -182,7 +205,15 @@ def process_hand_scan_image(image_path):
 
     image_height, image_width, _ = image_no_bg.shape
 
-    coin_diameter_pixels = detect_coin(image_no_bg)
+    # Extract directory and filename from image_path
+    base_dir = os.path.dirname(image_path)  # e.g., D:\Projects\GripAI_Algo\Pictures\Mueen
+    base_name = os.path.splitext(os.path.basename(image_path))[0]  # e.g., mueen1
+
+    # Create processed_images folder inside the base directory
+    output_folder = os.path.join(base_dir, "processed_images")
+    os.makedirs(output_folder, exist_ok=True)  # Reuse if exists
+
+    coin_diameter_pixels = detect_coin(image_no_bg, output_folder, base_name)
     if coin_diameter_pixels is None:
         print("Error: Could not detect coin in the image")
         return
@@ -210,9 +241,20 @@ def process_hand_scan_image(image_path):
     print(f"Hand Width: {hand_width_inches:.2f} inches")
     print(f"Weighted Category: {weighted_category}")
 
-    output_folder = "processed_images"
-    os.makedirs(output_folder, exist_ok=True)
-    output_path = os.path.join(output_folder, "processed_hand_image_with_coin_and_landmarks.jpg")
+    # Add length and width text to the top-left corner of the image
+    text = f"Length: {hand_length_inches:.2f} in, Width: {hand_width_inches:.2f} in"
+    cv2.putText(image_no_bg, text, (10, 30),  # Top-left corner
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    # Find unique output filename
+    output_base = os.path.join(output_folder, f"{base_name}_processed")
+    output_path = f"{output_base}.jpg"
+    counter = 2
+    while os.path.exists(output_path):
+        output_path = f"{output_base}{counter}.jpg"
+        counter += 1
+
+    # Save processed image with unique name
     cv2.imwrite(output_path, image_no_bg)
     print(f"Processed image with coin detection and hand landmarks saved as: {output_path}")
 
