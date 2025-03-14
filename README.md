@@ -55,12 +55,17 @@ pip install -r requirements.txt
 #### Prepare Test Image
 Place a test image (e.g., `test_image.jpg`) in the repository root. The image should contain a hand with a coin and a red circle drawn around the coin to serve as the reference scale.
 
-#### Run the Test Script
-Execute the `test.py` script to process the image and generate outputs:
-```bash
-python test.py
-```
-The script will prompt you to enter the path to your test image (e.g., `test_image.jpg`). Upon successful execution, it will:
+#### Run the Solution
+- If you want to use the **pixel-based solution**, update the image path in `pixel.py` and run it:
+  ```bash
+  python pixel.py
+  ```
+- If you want to use the **diameter-based solution**, update the image path in `diameter.py` and run it:
+  ```bash
+  python diameter.py
+  ```
+
+Upon successful execution, the script will:
 - Generate a processed image (`processed_images/processed_hand_image_with_coin_and_landmarks.jpg`) with hand landmarks, a green ellipse overlaying the red circle, and hand length/width annotations.
 - Create a debug image (`debug_red_mask.jpg`) showing the isolated red circle mask.
 
@@ -80,8 +85,9 @@ The script will prompt you to enter the path to your test image (e.g., `test_ima
 
 ### Example Workflow
 1. Place `test_image.jpg` in the repository.
-2. Run `python test.py` and input `test_image.jpg` when prompted.
-3. Check the `processed_images` and root directories for the output files.
+2. Update the image path in either `pixel.py` or `diameter.py`, depending on your preferred solution.
+3. Run the corresponding script (`python pixel.py` or `python diameter.py`).
+4. Check the `processed_images` and root directories for the output files.
 
 ## Code Structure
 - `detect_hand_region()`: Identifies the hand region using MediaPipe landmarks.
@@ -94,28 +100,9 @@ The script will prompt you to enter the path to your test image (e.g., `test_ima
 ## Contributing
 Feel free to fork this repository, submit issues, or create pull requests to improve the tool. Suggestions for enhancing red circle detection, supporting multiple coin sizes, or refining hand measurement accuracy are welcome.
 
-## License
-This project is licensed under the **MIT License** - see the `LICENSE` file for details.
 
 ## Acknowledgments
 - **MediaPipe** for hand landmark detection.
 - **OpenCV** for image processing capabilities.
 - **Pillow** for image handling.
-
-## Additional Instructions
-
-### Creating `test.py`
-Create a `test.py` file in the repository root with the following content to simplify testing. Replace `hand_measurement` with the name of your main script file (e.g., `hand_measurement.py` if you save your code there):
-```python
-from hand_measurement import process_hand_scan_image
-
-if __name__ == "__main__":
-    process_hand_scan_image("test_image.jpg")  # Replace with your test image path
-```
-
-### Test Image
-Prepare a test image (e.g., `test_image.jpg`) with a hand, a coin, and a red circle around the coin, and place it in the repository.
-
-### Running the Code
-Follow the step-by-step guide to set up the environment and run `test.py`. The processed image will show hand length and width, and the debug image will help verify the red circle detection.
 
